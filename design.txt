@@ -1,0 +1,23 @@
+
+
+- link acceptor (ranch)
+  - accepteert links, geeft ze aan link manager in beheer
+
+- link manager
+  - beheert open links naar nodes; checkout mechanisme voor als een
+  - topic ring een link nodig heeft
+
+- topic ring manager
+  = supervisor, 1 gen_server per topic ring
+  
+
+- overlay ring manager
+- overlay cyclon
+- overlay xxx
+
+- TCP protocol
+  - management messages
+  - subscribe messages
+  - publish messages
+  - implementatie: protobufs
+  - security? shared secret, signed request? TLS/SSL?
