@@ -23,5 +23,9 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
+    {ok, { {one_for_one, 5, 10},
+           [
+            ?CHILD(pdc_link_manager, worker),
+            ?CHILD(pdc_nodes_manager, worker)
+           ]} }.
 

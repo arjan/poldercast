@@ -6,6 +6,8 @@
   {applications, [
                   kernel,
                   stdlib,
+                  crypto,
+                  lager,
                   ranch
                  ]},
   {mod, { pdc_app, []}},

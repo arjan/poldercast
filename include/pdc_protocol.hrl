@@ -8,7 +8,7 @@
 -record(pdc_auth_response,
         {
           response :: binary(),
-          protocol_version :: integer()
+          protocol_version=?PROTOCOL_VERSION :: integer()
         }).
 
 -record(pdc_closed,

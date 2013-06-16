@@ -7,6 +7,10 @@
   - beheert open links naar nodes; checkout mechanisme voor als een
   - topic ring een link nodig heeft
 
+- node manager
+  - heeft de lijst van alle nodes
+
+  
 - topic ring manager
   = supervisor, 1 gen_server per topic ring
   
@@ -19,5 +23,5 @@
   - management messages
   - subscribe messages
   - publish messages
-  - implementatie: protobufs
+  - implementatie: erlang terms, {packet, 2}
   - security? shared secret, signed request? TLS/SSL?

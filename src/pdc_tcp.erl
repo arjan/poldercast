@@ -5,9 +5,11 @@
         {
           socket :: port(),
           transport :: atom(),
-          listener_pid :: pid(),
+          ranch_ref :: pid(),
           link_pid :: pid(),
-          timeout :: integer()
+          timeout :: integer(),
+
+          auth_challenge :: binary()
         }).
 
 -include_lib("../include/pdc_protocol.hrl").
@@ -34,8 +36,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link(ListenerPid, Socket, Transport, Opts) ->
-	gen_server:start_link(?MODULE, [ListenerPid, Socket, Transport, Opts], []).
+start_link(Ref, Socket, Transport, Opts) ->
+	gen_server:start_link(?MODULE, [Ref, Socket, Transport, Opts], []).
 
 -spec close(pid(), atom()) -> ok | error.
 close(Pid, Reason) ->
@@ -49,11 +51,11 @@ send(Pid, Message) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([ListenerPid, Socket, Transport, [{timeout, Timeout}]]) ->
+init([Ref, Socket, Transport, [{timeout, Timeout}]]) ->
     {ok, #state{socket=Socket,
-                listener_pid=ListenerPid,
+                ranch_ref=Ref,
                 transport=Transport,
-                timeout=Timeout}}.
+                timeout=Timeout}, 0}.
 
 
 handle_call({close, _}, _From, State=#state{socket=undefined}) ->
@@ -95,13 +97,20 @@ handle_info({ssl, Socket, Packet}, State=#state{socket=Socket}) ->
     do_packet_received(Packet, State);
 
 
-%% @doc Ranch callback when socket ready
-handle_info({shoot, Pid}, State=#state{listener_pid=Pid,
-                                       socket=Socket,
-                                       transport=Transport}) ->
-    Transport:setopts(Socket, [{active, once}, {packet, 2}, {recbuf, ?BUF_SIZE}, binary]),
-    {noreply, State};
-             
+%% @doc Initial start of socket flow
+handle_info(timeout, State=#state{ranch_ref=Ref,
+                                  socket=Socket,
+                                  transport=Transport}) ->
+    
+    ok = ranch:accept_ack(Ref),
+    ok = Transport:setopts(Socket, [{active, once}, {packet, 2}, {recbuf, ?BUF_SIZE}, binary]),
+
+    AuthChallenge = crypto:rand_bytes(64),
+    
+    send_and_noreply(
+      #pdc_auth_challenge{challenge=AuthChallenge},
+      State#state{auth_challenge=AuthChallenge});
+
 handle_info(Info, State) ->
     lager:warning("Unhandled message: ~p", [Info]),
     {noreply, State}.
@@ -117,9 +126,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% Handle protocol commands
 %% ------------------------------------------------------------------
 
+handle_incoming(#pdc_auth_response{protocol_version=ClientVersion}, State) when ClientVersion =/= ?PROTOCOL_VERSION ->
+    error_and_stop(<<"Protocol version mismatch">>, State);
+
+handle_incoming(#pdc_auth_response{response=Response}, State=#state{auth_challenge=AuthChallenge}) ->
+    case crypto:sha_mac_96(atom_to_list(erlang:get_cookie()), AuthChallenge) of
+        Response ->
+            lager:warning("ok!!!!!!!!!!!"),
+            error_and_stop(<<"Not implemented">>, State);
+        _ ->
+            error_and_stop(<<"Auth challenge failure">>, State)
+    end;
 
 handle_incoming(_UnknownTerm, State) ->
-    close_connection(#pdc_error{reason= <<"Protocol error.">>}, State).
+    error_and_stop(<<"Protocol error">>, State).
 
 
 %% ------------------------------------------------------------------
@@ -167,13 +187,15 @@ send_and_reply(Message, Reply, State) ->
     end.
 
 send_and_noreply(Message, State) ->
-    case send(Message, State) of
+    case do_send(Message, State) of
         ok ->
             {noreply, State};
         {error, closed} ->
             {stop, normal, State}
     end.
     
+error_and_stop(Reason, State) ->
+  {stop, normal, close_connection(#pdc_error{reason=Reason}, State)}.
 
 
 %% @doc Encode a #pdc_..{} record as TCP packet payload
