@@ -12,6 +12,9 @@ main(_) ->
                                  [binary, {packet, 2}, {active, false}]),
     Challenge = recv(Sock),
 
+    gen_tcp:send(Sock, term_to_binary({fdsfdsfsd})),
+    io:format("~p~n", [recv(Sock)]),
+    
     Response = crypto:sha_mac_96(atom_to_list(erlang:get_cookie()), Challenge#pdc_auth_challenge.challenge),
     gen_tcp:send(Sock, term_to_binary(#pdc_auth_response{response=Response})),
 

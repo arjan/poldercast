@@ -79,6 +79,19 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 
+%% @doc Initial start of socket flow
+handle_info(timeout, State=#state{ranch_ref=Ref,
+                                  socket=Socket,
+                                  transport=Transport}) ->
+    
+    ok = ranch:accept_ack(Ref),
+    ok = Transport:setopts(Socket, [{active, once}, {packet, 2}, {recbuf, ?BUF_SIZE}, binary]),
+    AuthChallenge = crypto:rand_bytes(64),
+    send_and_noreply(
+      #pdc_auth_challenge{challenge=AuthChallenge},
+      State#state{auth_challenge=AuthChallenge});
+
+
 %% TCP message handling
 
 handle_info({tcp_closed, Socket}, State=#state{socket=Socket}) ->
@@ -96,20 +109,6 @@ handle_info({ssl_closed, Socket}, State=#state{socket=Socket}) ->
 handle_info({ssl, Socket, Packet}, State=#state{socket=Socket}) ->
     do_packet_received(Packet, State);
 
-
-%% @doc Initial start of socket flow
-handle_info(timeout, State=#state{ranch_ref=Ref,
-                                  socket=Socket,
-                                  transport=Transport}) ->
-    
-    ok = ranch:accept_ack(Ref),
-    ok = Transport:setopts(Socket, [{active, once}, {packet, 2}, {recbuf, ?BUF_SIZE}, binary]),
-
-    AuthChallenge = crypto:rand_bytes(64),
-    
-    send_and_noreply(
-      #pdc_auth_challenge{challenge=AuthChallenge},
-      State#state{auth_challenge=AuthChallenge});
 
 handle_info(Info, State) ->
     lager:warning("Unhandled message: ~p", [Info]),
@@ -130,13 +129,17 @@ handle_incoming(#pdc_auth_response{protocol_version=ClientVersion}, State) when 
     error_and_stop(<<"Protocol version mismatch">>, State);
 
 handle_incoming(#pdc_auth_response{response=Response}, State=#state{auth_challenge=AuthChallenge}) ->
-    case crypto:sha_mac_96(atom_to_list(erlang:get_cookie()), AuthChallenge) of
+    Key = pdc_app:get_auth_shared_secret(),
+    case crypto:sha_mac_96(Key, AuthChallenge) of
         Response ->
-            lager:warning("ok!!!!!!!!!!!"),
+            %% FIXME do stuff here, like registering this link with the link manager.
             error_and_stop(<<"Not implemented">>, State);
         _ ->
             error_and_stop(<<"Auth challenge failure">>, State)
     end;
+
+handle_incoming(_, State=#state{link_pid=undefined}) ->
+    send_and_noreply(#pdc_error{reason= <<"Authenticate first">>}, State);
 
 handle_incoming(_UnknownTerm, State) ->
     error_and_stop(<<"Protocol error">>, State).
@@ -156,9 +159,7 @@ close_connection(ExitMessage, State=#state{socket=Socket, transport=Transport}) 
 do_packet_received(Packet, State=#state{socket=Socket, transport=Transport}) ->
     try
         Message = decode(Packet),
-        State1 = handle_incoming(Message, State),
-        Transport:setopts(Socket, [{active, once}]),
-        {noreply, State1}
+        handle_incoming(Message, State)
     catch
         throw:closed ->
             {stop, normal, State};
@@ -168,7 +169,8 @@ do_packet_received(Packet, State=#state{socket=Socket, transport=Transport}) ->
 
 do_send(Message, #state{socket=Socket, transport=Transport}) when is_tuple(Message) ->
     Packet = encode(Message),
-    Transport:send(Socket, Packet).
+    Transport:send(Socket, Packet),
+    Transport:setopts(Socket, [{active, once}]).
 
 send_or_throw(Message, State) ->
     case do_send(Message, State) of

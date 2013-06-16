@@ -3,7 +3,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, get_auth_shared_secret/0]).
 
 %% ===================================================================
 %% Application callbacks
@@ -27,3 +27,6 @@ get_env(Field, Default) ->
         {ok, Value} -> Value;
         _ -> Default
     end.
+
+get_auth_shared_secret() ->
+    atom_to_list(erlang:get_cookie()).
