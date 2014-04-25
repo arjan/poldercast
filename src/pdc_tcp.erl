@@ -159,7 +159,9 @@ close_connection(ExitMessage, State=#state{socket=Socket, transport=Transport}) 
 do_packet_received(Packet, State=#state{socket=Socket, transport=Transport}) ->
     try
         Message = decode(Packet),
-        handle_incoming(Message, State)
+        Response = handle_incoming(Message, State),
+        Transport:setopts(Socket, [{active, once}]),
+        Response
     catch
         throw:closed ->
             {stop, normal, State};
@@ -169,8 +171,7 @@ do_packet_received(Packet, State=#state{socket=Socket, transport=Transport}) ->
 
 do_send(Message, #state{socket=Socket, transport=Transport}) when is_tuple(Message) ->
     Packet = encode(Message),
-    Transport:send(Socket, Packet),
-    Transport:setopts(Socket, [{active, once}]).
+    Transport:send(Socket, Packet).
 
 send_or_throw(Message, State) ->
     case do_send(Message, State) of
